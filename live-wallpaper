@@ -1,0 +1,287 @@
+#!/usr/bin/env python
+
+### live-wallpaper v0.1 ###
+
+'''
+
+
+Contact:
+
+	Matthew Withers
+	astrolinux22 at gmail dot com
+	astrolinux22 dot blogspot dot co dot uk
+	
+Required Packages:
+	
+	python-
+'''
+
+from gi.repository import Gtk
+from gi.repository import AppIndicator3 as appindicator
+from gi.repository import Notify
+from gi.repository import GLib
+from gi.repository import Gio
+import datetime
+import ephem
+import sys
+import argparse
+import os
+
+class ChangeWallpaper:
+
+	def __init__(self,latitude=0.0,longitude=0.0,elevation=0,interval=10,osd=True,debug=False):
+		
+		self.dir = os.path.dirname(__file__)
+				
+		if latitude is not None:
+			self.latitude = str(latitude) #Latitude/degrees
+		else:
+			self.latitude = '53.2631'
+		
+		if longitude is not None:
+			self.longitude = str(longitude) #Longitude/degrees
+		else:
+			self.longitude = '-4.09233'
+			
+		if elevation is not None:
+			self.elevation = elevation #Altitude/m
+		else:
+			self.elevation = 10
+		
+		if interval is not None:
+			self.interval = int(interval)*60000 #Interval/milliseconds
+		else:
+			self.interval = 10*60000
+			
+		if osd is not None:
+			self.osd = osd #OSD (True/False)
+		else:
+			self.osd = True
+			
+		if debug is not None:
+			self.debug = debug
+		else:
+			debug = False
+
+		#Source Files
+		self.img_dawn = os.path.join(self.dir, 'img/dawn.png')
+		self.img_day = os.path.join(self.dir, 'img/day.png')
+		self.img_dusk = os.path.join(self.dir, 'img/dusk.png')
+		self.img_night = os.path.join(self.dir, 'img/night.png')
+
+		self.logo_dawn = os.path.join(self.dir, 'logo/dawn.png')
+		self.logo_day = os.path.join(self.dir, 'logo/day.png')
+		self.logo_dusk = os.path.join(self.dir, 'logo/dusk.png')
+		self.logo_night = os.path.join(self.dir, 'logo/night.png')
+		
+		self.icon_dawn = os.path.join(self.dir, 'icon/dawn.png')
+		self.icon_day = os.path.join(self.dir, 'icon/day.png')
+		self.icon_dusk = os.path.join(self.dir, 'icon/dusk.png')
+		self.icon_night = os.path.join(self.dir, 'icon/night.png')
+		
+		self.icon_logo = os.path.join(self.dir, 'icon/logo.png')	
+					
+		self.SCHEMA = 'org.gnome.desktop.background'
+		self.KEY = 'picture-uri'
+
+		self.ind = appindicator.Indicator.new("live-wallaper-indicator", self.icon_day, appindicator.IndicatorCategory.APPLICATION_STATUS)
+		self.ind.set_status(appindicator.IndicatorStatus.ACTIVE)
+	        self.menu_setup()
+	        self.ind.set_menu(self.menu)
+
+		
+    	def menu_setup(self):
+        	self.menu = Gtk.Menu()
+
+		self.status_item = Gtk.MenuItem('Null')
+		self.status_item.set_sensitive(False)
+		self.status_item.show()
+        	self.menu.append(self.status_item)
+        	
+        	self.separator = Gtk.SeparatorMenuItem()
+		self.separator.show()
+		self.menu.append(self.separator)
+		
+		self.refresh_item = Gtk.MenuItem('Refresh')
+        	self.refresh_item.connect('activate', self.refresh)
+        	self.refresh_item.show()
+        	self.menu.append(self.refresh_item)
+
+        	self.quit_item = Gtk.MenuItem('Quit')
+        	self.quit_item.connect('activate', self.quit)
+        	self.quit_item.show()
+        	self.menu.append(self.quit_item)
+
+	def refresh(self, widget):
+		self.state()
+
+	def quit(self, widget):
+	        sys.exit(0)
+
+	def main(self):
+		if self.debug is True:
+			self.debugOutput()
+		self.state()
+	        GLib.timeout_add(self.interval, self.state)
+	        Gtk.main()
+
+	def updateStatus (self, currentState, currentIcon):
+		self.status_item.set_label(currentState)
+		self.ind.set_icon(currentIcon)
+
+	def notifyOSD (self,timecode):
+		
+		if self.osd == True:
+			Notify.init ("icon-summary-body")
+			if timecode == 1:
+				n = Notify.Notification.new ("It is now dawn", "", self.logo_dawn)
+			elif timecode == 2:
+				n = Notify.Notification.new ("It is now day", "", self.logo_day)
+			elif timecode == 3:
+				n = Notify.Notification.new ("It is now dusk", "", self.logo_dusk)
+			elif timecode == 4:
+				n = Notify.Notification.new ("It is now night", "", self.logo_night)
+			else:
+				n = Notify.Notification.new ("Error", "")
+			n.show ()
+		else:
+			return True
+
+	def debugOutput (self):
+		
+		print '\nDebug Output'
+		print '------------------------------------\n'
+		self.now = datetime.datetime.now()
+		print str(self.now),'\n'
+		print 'Variables:\n'
+		print 'Latitude = ',self.latitude
+		print 'Longitude = ',self.longitude
+		print 'Elevation = ',self.elevation,'m'
+		print 'Interval = ',self.interval,'milliseconds'
+		print 'Theme = ',self.theme
+		print 'OSD = ',self.osd
+		
+
+	def state (self):
+
+		#Observer Location
+		self.Observer = ephem.Observer()
+		self.Observer.lat=self.latitude
+		#self.Observer.lat='54'
+		self.Observer.long=self.longitude
+		self.Observer.elevation=self.elevation
+		self.Sun=ephem.Sun()
+		self.Sun.compute()
+
+		#Calculate Next Sunrise/Sunset
+		self.next_sunrise = ephem.localtime(self.Observer.next_rising(self.Sun))
+		self.next_sunset = ephem.localtime(self.Observer.next_setting(self.Sun))
+
+		#Calculate Next Dawn Start/Dusk End
+		self.Observer.horizon = '-6' #Civil Twighlight
+		self.next_dawn_start = ephem.localtime(self.Observer.next_rising(self.Sun))
+		self.next_dusk_end = ephem.localtime(self.Observer.next_setting(self.Sun))
+
+		#Calculate Next Dawn End/Dusk Start
+		self.Observer.horizon = '+6' #Civil Twighlight
+		self.next_dawn_end = ephem.localtime(self.Observer.next_rising(self.Sun))
+		self.next_dusk_start = ephem.localtime(self.Observer.next_setting(self.Sun))
+
+		if self.debug is True:
+			print '\nSun Data:\n'
+			print 'Next Dawn Start: ' , self.next_dawn_start
+			print 'Next Sunrise: ' , self.next_sunrise
+			print 'Next Dawn End: ' , self.next_dawn_end
+			print 'Next Dusk Start: ' , self.next_dusk_start
+			print 'Next Sunset: ' , self.next_sunset
+			print 'Next Dusk End: ' , self.next_dusk_end
+		
+		# Main Runtime
+
+
+		#Compute if it is Day or Night
+		if self.next_sunrise < self.next_sunset :
+			#Night
+			#Compute if it is Dusk/Night/Dawn
+			if self.next_dawn_start > self.next_sunrise:
+				print '\nIt is now dawn'
+				self.updateStatus('Dawn',self.icon_dawn)
+				self.setBackground(self.img_dawn,1) #Dawn
+				return True
+			elif self.next_dusk_end < self.next_sunrise:
+				print '\nIt is now dusk'
+				self.updateStatus('Dusk',self.icon_dusk)
+				self.setBackground(self.img_dusk,3) #Dusk
+				return True
+			else:
+				print '\nIt is now night'
+				self.updateStatus('Night',self.icon_night)
+				self.setBackground(self.img_night,4) #Night
+				return True
+
+		elif self.next_sunset < self.next_sunrise :
+			#Day
+			#Compute if it is Dawn/Day/Dusk
+			if self.next_dawn_end < self.next_sunset:
+				print '\nIt is now dawn'
+				self.updateStatus('Dawn',self.icon_dawn)
+				self.setBackground(self.img_dawn,1)	#Dawn
+				return True
+			elif self.next_dusk_start > self.next_sunset:
+				print '\nIt is now dusk'
+				self.updateStatus('Dusk',self.icon_dusk)
+				self.setBackground(self.img_dusk,3) #Dusk
+				return True
+			else:
+				print '\nIt is now day'
+				self.updateStatus('Day',self.icon_day)
+				self.setBackground(self.img_day,2) #Day
+				return True
+		else:
+			print '\n\nERROR\n\n'
+			return False
+			
+
+
+	def setBackground(self,img,timecode):
+
+		self.gsettings = Gio.Settings.new(self.SCHEMA)
+		self.current = self.gsettings.get_string(self.KEY)
+
+		if self.current != img :
+			self.gsettings.set_string(self.KEY, "file://" + img)
+			self.notifyOSD(timecode)
+			self.gsettings.apply()
+			print(self.gsettings.get_string(self.KEY))
+			return True
+		else:
+			#print '\nNo Wallpaper Change Required\n'
+			return True
+
+
+if __name__ == "__main__":
+
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--lat", help="Your Latitude in Decimal Degrees", type=float)
+	parser.add_argument("--long", help="Your Longitude in Decimal Degrees", type=float)
+	parser.add_argument("--elev", help="Your Elevation in Meters", type=float)
+	parser.add_argument("-i","--interval", help="Update Interval in Minutes", type=int)
+	parser.add_argument("-o","--osd", help="Enable OSD Updates",action="store_true")
+	parser.add_argument("-d", "--debug", help="Enable verbose output for debug help", action="store_true")
+	args=parser.parse_args()
+	
+	indicator = ChangeWallpaper(args.lat,args.long,args.elev,args.interval,args.osd,args.debug)
+	indicator.main()
+	
+
+
+
+
+
+
+
+
+
+
+
+
